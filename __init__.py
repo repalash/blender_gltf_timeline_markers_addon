@@ -105,8 +105,12 @@ class glTF2ExportUserExtension:
         self.cameras = {}
 
 
-    def gather_camera_hook(self, gltf2_camera: io_scene_gltf2.io.com.gltf2_io.Camera, blender_camera, export_settings):
+    def gather_camera_hook(self, gltf2_camera: io_scene_gltf2.io.com.gltf2_io.Camera, blender_camera: bpy.types.Camera, export_settings):
         self.cameras[blender_camera.name] = gltf2_camera
+        if blender_camera.sensor_fit == 'AUTO':
+            if gltf2_camera.extras is None:
+                gltf2_camera.extras = {}
+            gltf2_camera.extras['autoAspect'] = True
 
     def gather_scene_hook(self, gltf2_scene: io_scene_gltf2.io.com.gltf2_io.Scene, blender_scene: bpy.types.Scene, export_settings):
         markers = blender_scene.timeline_markers
