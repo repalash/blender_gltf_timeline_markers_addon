@@ -115,8 +115,9 @@ class glTF2ExportUserExtension:
     def gather_scene_hook(self, gltf2_scene: io_scene_gltf2.io.com.gltf2_io.Scene, blender_scene: bpy.types.Scene, export_settings):
         markers = blender_scene.timeline_markers
         extMarkers = []
+        fps = blender_scene.render.fps
         for marker in markers:
-            markerData = {'name': marker.name,'frame': marker.frame}
+            markerData = {'name': marker.name,'frame': marker.frame, 'time': 1.0 * marker.frame / fps}
             if marker.camera is not None:
                 camIndex = self.cameras[marker.camera.data.name]
                 if camIndex is not None:
