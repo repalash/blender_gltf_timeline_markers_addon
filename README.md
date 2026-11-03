@@ -9,11 +9,52 @@ Custom extension to support animation timeline markers with camera binding suppo
 --------------
 Put this folder in the python addons directory in blender.
 
-For Mac its `/Applications/Blender.app/Contents/Resources/2.92/scripts/addons`
+For Mac its `/Applications/Blender.app/Contents/Resources/<version>/scripts/addons`
+For Linux `/home/<username>/.config/blender/<version>/scripts/addons`
 
-The markers will be added to the scene object
+The markers are exported at the glTF document root inside `extensions.WEBGI_animation_markers`
 
-Threejs Import
+Example exported structure
+--------------------------
+
+```json
+{
+  "extensions": {
+    "WEBGI_animation_markers": {
+      "markers": [
+        {
+          "name": "impact_1",
+          "frame": 42,
+          "time": 1.4,
+          "camera": 0,
+          "animation": "fall"
+        },
+        {
+          "name": "impact_2",
+          "frame": 90,
+          "time": 3.0,
+          "camera": 0,
+          "animation": "fall"
+        },
+        {
+          "name": "impact_2",
+          "frame": 90,
+          "time": 3.0,
+          "camera": 0,
+          "animation": "idle"
+        }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+- Each marker entry carries exactly one `animation` value.
+- If a marker falls into multiple animation ranges, the exporter emits one marker entry per matching animation.
+- `camera` is optional and is resolved to the exported camera index when present.
+
+Three.js Import
 --------------
 
 ```typescript
@@ -28,18 +69,18 @@ class GLTFTimelineMarkersExtension implements GLTFLoaderPlugin {
 
     }
     async afterRoot(result: GLTF) {
+        const markersData = this.parser.json.extensions?.[this.name]
         const markers: any[] = []
-        for (const jScene of this.parser.json.scenes) {
-            if (!jScene.extensions) continue
-            const params = jScene.extensions[this.name]
-            for (const marker of params?.markers || []) {
-                const camera = marker.camera !== undefined ? await this.parser.getDependency('camera', marker.camera) : undefined
-                markers.push({
-                    name: marker.name,
-                    frame: marker.frame,
-                    camera,
-                })
-            }
+
+        for (const marker of markersData?.markers || []) {
+            const camera = marker.camera !== undefined ? await this.parser.getDependency('camera', marker.camera) : undefined
+            markers.push({
+                name: marker.name,
+                frame: marker.frame,
+                time: marker.time,
+                camera,
+                animation: marker.animation,
+            })
         }
         if (markers.length < 1) return
 
