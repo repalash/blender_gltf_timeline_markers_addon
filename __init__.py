@@ -1,9 +1,4 @@
 import bpy
-import io_scene_gltf2.io.com.gltf2_io
-from io_scene_gltf2.blender.exp.gltf2_blender_gather_cameras import gather_camera
-from io_scene_gltf2.blender.exp import gltf2_blender_get
-from io_scene_gltf2.blender.exp import gltf2_blender_gather_texture_info
-from io_scene_gltf2.blender.exp import gltf2_blender_search_node_tree
 
 bl_info = {
     "name": "Timeline markers Extension",
@@ -105,14 +100,14 @@ class glTF2ExportUserExtension:
         self.cameras = {}
 
 
-    def gather_camera_hook(self, gltf2_camera: io_scene_gltf2.io.com.gltf2_io.Camera, blender_camera: bpy.types.Camera, export_settings):
+    def gather_camera_hook(self, gltf2_camera, blender_camera, export_settings):
         self.cameras[blender_camera.name] = gltf2_camera
         if blender_camera.sensor_fit == 'AUTO':
             if gltf2_camera.extras is None:
                 gltf2_camera.extras = {}
             gltf2_camera.extras['autoAspect'] = True
 
-    def gather_scene_hook(self, gltf2_scene: io_scene_gltf2.io.com.gltf2_io.Scene, blender_scene: bpy.types.Scene, export_settings):
+    def gather_scene_hook(self, gltf2_scene, blender_scene, export_settings):
         markers = blender_scene.timeline_markers
         extMarkers = []
         fps = blender_scene.render.fps
@@ -125,6 +120,9 @@ class glTF2ExportUserExtension:
             extMarkers.append(markerData)
 
         self.cameras.clear()
+
+        if gltf2_asset.extensions is None:
+            gltf2_asset.extensions = {}
 
         gltf2_scene.extensions[self.properties.extension_name] = self.Extension(
             name=self.properties.extension_name,
