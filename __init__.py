@@ -1,9 +1,4 @@
 import bpy
-import io_scene_gltf2.io.com.gltf2_io
-from io_scene_gltf2.blender.exp.gltf2_blender_gather_cameras import gather_camera
-from io_scene_gltf2.blender.exp import gltf2_blender_get
-from io_scene_gltf2.blender.exp import gltf2_blender_gather_texture_info
-from io_scene_gltf2.blender.exp import gltf2_blender_search_node_tree
 
 bl_info = {
     "name": "Timeline markers Extension",
@@ -103,33 +98,117 @@ class glTF2ExportUserExtension:
         self.Extension = Extension
         self.properties = bpy.context.scene.TimelineMarkersExtensionProperties
         self.cameras = {}
+        self.scene_markers = {}
+
+    def _collect_exported_actions(self, blender_scene):
+        exported_actions = {}
+
+        def register_action(action):
+            if action is None:
+                return
+            if action.name not in exported_actions:
+                exported_actions[action.name] = action
+
+        scene_animation = blender_scene.animation_data
+        if scene_animation is not None:
+            register_action(scene_animation.action)
+
+        for obj in blender_scene.objects:
+            object_animation = obj.animation_data
+            if object_animation is None:
+                continue
+
+            register_action(object_animation.action)
+
+            if object_animation.nla_tracks is None:
+                continue
+
+            for track in object_animation.nla_tracks:
+                if track.mute:
+                    continue
+                for strip in track.strips:
+                    if strip.mute:
+                        continue
+                    register_action(strip.action)
+
+        return exported_actions
 
 
-    def gather_camera_hook(self, gltf2_camera: io_scene_gltf2.io.com.gltf2_io.Camera, blender_camera: bpy.types.Camera, export_settings):
+    def gather_camera_hook(self, gltf2_camera, blender_camera, export_settings):
         self.cameras[blender_camera.name] = gltf2_camera
         if blender_camera.sensor_fit == 'AUTO':
             if gltf2_camera.extras is None:
                 gltf2_camera.extras = {}
             gltf2_camera.extras['autoAspect'] = True
 
-    def gather_scene_hook(self, gltf2_scene: io_scene_gltf2.io.com.gltf2_io.Scene, blender_scene: bpy.types.Scene, export_settings):
-        markers = blender_scene.timeline_markers
+    def gather_scene_hook(self, gltf2_scene, blender_scene, export_settings):
+        if not self.properties.enabled:
+            return
+
+        scene_markers = blender_scene.timeline_markers
         extMarkers = []
         fps = blender_scene.render.fps
-        for marker in markers:
-            markerData = {'name': marker.name,'frame': marker.frame, 'time': 1.0 * marker.frame / fps}
+        for marker in scene_markers:
+            markerData = {
+                'name': marker.name,
+                'frame': marker.frame,
+                'time': 1.0 * marker.frame / fps,
+                'marker_type': 'scene',
+            }
             if marker.camera is not None:
-                camIndex = self.cameras[marker.camera.data.name]
+                camIndex = self.cameras.get(marker.camera.data.name)
                 if camIndex is not None:
                     markerData['camera'] = camIndex
             extMarkers.append(markerData)
 
+        exported_actions = self._collect_exported_actions(blender_scene)
+        for animation_name, action in exported_actions.items():
+            for marker in action.pose_markers:
+                extMarkers.append({
+                    'name': marker.name,
+                    'frame': marker.frame,
+                    'time': 1.0 * marker.frame / fps,
+                    'marker_type': 'pose',
+                    'animation': animation_name,
+                })
+
         self.cameras.clear()
 
-        gltf2_scene.extensions[self.properties.extension_name] = self.Extension(
+        self.scene_markers[id(gltf2_scene)] = extMarkers
+        if gltf2_scene.name:
+            self.scene_markers[gltf2_scene.name] = extMarkers
+
+    def gather_gltf_extensions_hook(self, gltf2_asset, export_settings):
+        if not self.properties.enabled:
+            return
+
+        if gltf2_asset is None or gltf2_asset.scenes is None or len(gltf2_asset.scenes) == 0:
+            self.scene_markers.clear()
+            return
+
+        active_scene_index = gltf2_asset.scene if gltf2_asset.scene is not None else 0
+        if active_scene_index < 0 or active_scene_index >= len(gltf2_asset.scenes):
+            active_scene_index = 0
+
+        active_scene = gltf2_asset.scenes[active_scene_index]
+
+        extension_payload = self.scene_markers.get(id(active_scene))
+        if extension_payload is None and active_scene.name:
+            extension_payload = self.scene_markers.get(active_scene.name)
+
+        if extension_payload is None:
+            self.scene_markers.clear()
+            return
+
+        if gltf2_asset.extensions is None:
+            gltf2_asset.extensions = {}
+
+        gltf2_asset.extensions[self.properties.extension_name] = self.Extension(
             name=self.properties.extension_name,
-            extension={'markers': extMarkers},
+            extension={'markers': extension_payload},
             required=extension_is_required)
+
+        self.scene_markers.clear()
 
 
 def dump(obj):
