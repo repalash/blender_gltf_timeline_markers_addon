@@ -100,29 +100,25 @@ class glTF2ExportUserExtension:
         self.cameras = {}
         self.scene_markers = {}
 
-    def _collect_animation_ranges(self, blender_scene):
-        animation_ranges = {}
+    def _collect_exported_actions(self, blender_scene):
+        exported_actions = {}
 
-        def register_animation(animation_name, frame_start, frame_end):
-            if animation_name in animation_ranges:
-                old_start, old_end = animation_ranges[animation_name]
-                animation_ranges[animation_name] = (min(old_start, frame_start), max(old_end, frame_end))
-            else:
-                animation_ranges[animation_name] = (frame_start, frame_end)
+        def register_action(action):
+            if action is None:
+                return
+            if action.name not in exported_actions:
+                exported_actions[action.name] = action
 
         scene_animation = blender_scene.animation_data
-        if scene_animation is not None and scene_animation.action is not None:
-            frame_start, frame_end = scene_animation.action.frame_range
-            register_animation(scene_animation.action.name, frame_start, frame_end)
+        if scene_animation is not None:
+            register_action(scene_animation.action)
 
         for obj in blender_scene.objects:
             object_animation = obj.animation_data
             if object_animation is None:
                 continue
 
-            if object_animation.action is not None:
-                frame_start, frame_end = object_animation.action.frame_range
-                register_animation(object_animation.action.name, frame_start, frame_end)
+            register_action(object_animation.action)
 
             if object_animation.nla_tracks is None:
                 continue
@@ -131,11 +127,11 @@ class glTF2ExportUserExtension:
                 if track.mute:
                     continue
                 for strip in track.strips:
-                    if strip.mute or strip.action is None:
+                    if strip.mute:
                         continue
-                    register_animation(strip.action.name, strip.frame_start, strip.frame_end)
+                    register_action(strip.action)
 
-        return animation_ranges
+        return exported_actions
 
 
     def gather_camera_hook(self, gltf2_camera, blender_camera, export_settings):
@@ -149,31 +145,32 @@ class glTF2ExportUserExtension:
         if not self.properties.enabled:
             return
 
-        markers = blender_scene.timeline_markers
+        scene_markers = blender_scene.timeline_markers
         extMarkers = []
         fps = blender_scene.render.fps
-        animation_ranges = self._collect_animation_ranges(blender_scene)
-        for marker in markers:
-            markerData = {'name': marker.name,'frame': marker.frame, 'time': 1.0 * marker.frame / fps}
+        for marker in scene_markers:
+            markerData = {
+                'name': marker.name,
+                'frame': marker.frame,
+                'time': 1.0 * marker.frame / fps,
+                'marker_type': 'scene',
+            }
             if marker.camera is not None:
-                camIndex = self.cameras[marker.camera.data.name]
+                camIndex = self.cameras.get(marker.camera.data.name)
                 if camIndex is not None:
                     markerData['camera'] = camIndex
+            extMarkers.append(markerData)
 
-            marker_animations = []
-            for animation_name, frame_range in animation_ranges.items():
-                frame_start, frame_end = frame_range
-                if frame_start <= marker.frame <= frame_end:
-                    marker_animations.append(animation_name)
-
-            if len(marker_animations) == 0:
-                extMarkers.append(markerData)
-                continue
-
-            for animation_name in marker_animations:
-                marker_entry = dict(markerData)
-                marker_entry['animation'] = animation_name
-                extMarkers.append(marker_entry)
+        exported_actions = self._collect_exported_actions(blender_scene)
+        for animation_name, action in exported_actions.items():
+            for marker in action.pose_markers:
+                extMarkers.append({
+                    'name': marker.name,
+                    'frame': marker.frame,
+                    'time': 1.0 * marker.frame / fps,
+                    'marker_type': 'pose',
+                    'animation': animation_name,
+                })
 
         self.cameras.clear()
 
